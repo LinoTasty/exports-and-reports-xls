@@ -152,7 +152,7 @@ class WP_Admin_UI
         }
         if(false!==$this->get_var('order_dir',false,array('ASC','DESC')))
             $this->order_dir = ('ASC'==$_GET['order_dir']?'ASC':'DESC');
-        if(false!==$this->get_var('action',false,'export')&&false!==$this->get_var('export_type',false,array('csv','tsv','pipe','custom','xml','json')))
+        if(false!==$this->get_var('action',false,'export')&&false!==$this->get_var('export_type',false,array('csv','tsv','pipe','custom','xml','json','xls')))
             $this->export_type = $_GET['export_type'];
         if(false!==$this->get_var('action',false,'export')&&'custom'==$this->export_type&&false!==$this->get_var('export_delimiter'))
             $this->export_delimiter = $_GET['export_delimiter'];
@@ -1237,7 +1237,59 @@ class WP_Admin_UI
                 fclose($fp);
                 $this->message('<strong>Success:</strong> Your export is ready, the download should begin in a few moments. If it doesn\'t, <a href="'.$this->export_url.urlencode($export_file).'">click here to access your CSV export file</a>.<br /><br />When you are done with your export, <a href="'.$this->var_update(array('remove_export'=>urlencode($export_file),'action'=>'export')).'">click here to remove it</a>, otherwise the export will be deleted within 24 hours of generation.');
                 echo '<script type="text/javascript">window.open("'.$this->export_url.urlencode($export_file).'");</script>';
-            }
+            }elseif($this->export_type=='xls'){
+                $export_file = str_replace('-','_',sanitize_title($this->items)).'_'.date_i18n('m-d-Y_H-i-s').'_'.wp_generate_password(5,false).'.csv';
+	            $export_file = apply_filters( 'wp_admin_ui_export_file', $export_file, 'csv', $this->export_type, $this->items, $this );
+                $fp = fopen(WP_ADMIN_UI_EXPORT_DIR.'/'.$export_file,'a+');
+                $head = array();
+                $first = true;
+                foreach($this->export_columns as $key=>$attributes)
+                {
+                    if(!is_array($attributes)) {
+                        $key = $attributes;
+                        $attributes = $this->setup_column($key);
+                    }
+                    if(false===$attributes['display']&&false===$attributes['export'])
+                        continue;
+                    if($first)
+                    {
+                        $attributes['label'] .= ' ';
+                        $first = false;
+                    }
+                    $head[] = $attributes['label'];
+                }
+                fputcsv($fp,$head,",");
+                foreach($this->full_data as $item)
+                {
+                    $line = array();
+                    foreach($this->export_columns as $key=>$attributes)
+                    {
+                        if(!is_array($attributes)) {
+                            $key = $attributes;
+                            $attributes = $this->setup_column($key);
+                        }
+                        if(false===$attributes['display']&&false===$attributes['export'])
+                            continue;
+                        $item[$key] = $this->field_value($item[$key],$key,$attributes);
+                        if(false!==$attributes['custom_display']&&function_exists("{$attributes['custom_display']}"))
+                            $item[$key] = $attributes['custom_display']($item[$key],$item,$key,$attributes,$this);
+                        $line[] = str_replace(array("\r","\n"),' ',$item[$key]);
+                    }
+                    fputcsv($fp,$line,",");
+                }
+                fclose($fp);
+				include 'PHPExcel/IOFactory.php';
+				$objReader = PHPExcel_IOFactory::createReader('CSV');
+
+				// If the files uses a delimiter other than a comma (e.g. a tab), then tell the reader
+				$objReader->setDelimiter(",");
+				$objPHPExcel = $objReader->load(WP_ADMIN_UI_EXPORT_DIR.'/'.$export_file);
+				$objWriter = PHPExcel_IOFactory::createWriter($objPHPExcel, 'Excel5');
+				$objWriter->save(WP_ADMIN_UI_EXPORT_DIR.'/'.str_replace("csv","xls",$export_file));
+				$export_file=str_replace("csv","xls",$export_file);
+                $this->message('<strong>Success:</strong> Your export is ready, the download should begin in a few moments. If it doesn\'t, <a href="'.$this->export_url.urlencode($export_file).'">click here to access your XLS export file</a>.<br /><br />When you are done with your export, <a href="'.$this->var_update(array('remove_export'=>urlencode($export_file),'action'=>'export')).'">click here to remove it</a>, otherwise the export will be deleted within 24 hours of generation.');
+                echo '<script type="text/javascript">window.open("'.$this->export_url.urlencode($export_file).'");</script>';
+			}
             elseif($this->export_type=='tsv')
             {
                 $export_file = str_replace('-','_',sanitize_title($this->items)).'_'.date_i18n('m-d-Y_H-i-s').'_'.wp_generate_password(5,false).'.tsv';
@@ -1970,8 +2022,8 @@ jQuery(document).ready(function(){
             }
 ?>&nbsp;&nbsp;
             <label<?php echo(empty($this->filters)?' class="screen-reader-text"':''); ?> for="page-search-input">Search:</label>
-            <input type="text" name="search_query" id="page-search-input" value="<?php echo $this->search_query; ?>" />
-            <input type="submit" value="Search" class="button" />
+            <!--<input type="text" name="search_query" id="page-search-input" value="<?php echo $this->search_query; ?>" />
+            <input type="submit" value="Search" class="button" />-->
 <?php
             if(false!==$this->search_query)
             {
@@ -2042,6 +2094,7 @@ jQuery(document).ready(function(){
             <input type="button" value=" TSV " class="button" onclick="document.location='<?php echo $this->var_update(array('action'=>'export','export_type'=>'tsv')); ?>';" />
             <input type="button" value=" XML " class="button" onclick="document.location='<?php echo $this->var_update(array('action'=>'export','export_type'=>'xml')); ?>';" />
             <input type="button" value=" JSON " class="button" onclick="document.location='<?php echo $this->var_update(array('action'=>'export','export_type'=>'json')); ?>';" />
+            <input type="button" value=" XLS " class="button" onclick="document.location='<?php echo $this->var_update(array('action'=>'export','export_type'=>'xls')); ?>';" />
 <?php
             }
 ?>
